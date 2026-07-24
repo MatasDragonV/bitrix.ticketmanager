@@ -44,6 +44,7 @@ class bitrix_ticketmanager extends CModule
         $pages = [
             __DIR__ . '/../admin/ticket_list.php'     => $adminDir . 'ticket_manager_list.php',
             __DIR__ . '/../admin/ticket_settings.php' => $adminDir . 'ticket_manager_settings.php',
+            __DIR__ . '/../admin/ticket_ajax.php'     => $adminDir . 'ticket_manager_ajax.php',
         ];
         foreach ($pages as $src => $dest) {
             if (!file_exists($dest)) copy($src, $dest);
@@ -67,6 +68,7 @@ class bitrix_ticketmanager extends CModule
         $toDelete = [
             $_SERVER['DOCUMENT_ROOT'] . '/bitrix/admin/ticket_manager_list.php',
             $_SERVER['DOCUMENT_ROOT'] . '/bitrix/admin/ticket_manager_settings.php',
+            $_SERVER['DOCUMENT_ROOT'] . '/bitrix/admin/ticket_manager_ajax.php',
             $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/admin_menu/bitrix.ticketmanager.php',
         ];
         foreach ($toDelete as $f) {

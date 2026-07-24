@@ -9,3 +9,5 @@ $MESS['BITRIX_TM_UNINSTALL_OK']    = 'Модуль успешно удалён.'
 $MESS['BITRIX_TM_GO_MODULE']       = 'Перейти к управлению обращениями';
 $MESS["BITRIX_TM_MENU_ITEM"]       = "Управление обращениями";
 $MESS["BITRIX_TM_MENU_ITEM_TITLE"] = "Фильтр и массовое удаление обращений (спама)";
+$MESS['BITRIX_TM_MENU_SETTINGS']       = 'Настройки';
+$MESS['BITRIX_TM_MENU_SETTINGS_TITLE'] = 'Настройки модуля управления обращениями';

@@ -220,6 +220,7 @@ if ($filter->getErrors()):?>
     <?php endif; ?>
 
     <span class="tm-summary">Найдено: <strong><?= $total ?></strong></span>
+    <a href="/bitrix/admin/ticket_manager_settings.php?<?= $sLang ?>" class="tm-btn tm-btn-default" style="margin-left:auto">⚙ Настройки</a>
 </div>
 
 <?php if (empty($rows)): ?>

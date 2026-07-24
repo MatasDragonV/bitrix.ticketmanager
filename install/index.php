@@ -39,12 +39,19 @@ class bitrix_ticketmanager extends CModule
 
         RegisterModule($this->MODULE_ID);
 
-        // Копируем страницу в /bitrix/admin/
-        $src  = __DIR__ . '/../admin/ticket_list.php';
-        $dest = $_SERVER['DOCUMENT_ROOT'] . '/bitrix/admin/ticket_manager_list.php';
-        if (!file_exists($dest)) {
-            copy($src, $dest);
+        // Копируем страницы в /bitrix/admin/
+        $adminDir = $_SERVER['DOCUMENT_ROOT'] . '/bitrix/admin/';
+        $pages = [
+            __DIR__ . '/../admin/ticket_list.php'     => $adminDir . 'ticket_manager_list.php',
+            __DIR__ . '/../admin/ticket_settings.php' => $adminDir . 'ticket_manager_settings.php',
+        ];
+        foreach ($pages as $src => $dest) {
+            if (!file_exists($dest)) copy($src, $dest);
         }
+
+        // Регистрируем пункт меню в админке
+        $menuFile = $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/admin_menu/bitrix.ticketmanager.php';
+        copy(__DIR__ . '/menu.php', $menuFile);
 
         $APPLICATION->IncludeAdminFile(
             Loc::getMessage('BITRIX_TM_INSTALL_TITLE'),
@@ -56,11 +63,18 @@ class bitrix_ticketmanager extends CModule
     {
         global $APPLICATION;
 
-        // Удаляем скопированную страницу из /bitrix/admin/
-        $dest = $_SERVER['DOCUMENT_ROOT'] . '/bitrix/admin/ticket_manager_list.php';
-        if (file_exists($dest)) {
-            unlink($dest);
+        // Удаляем скопированные страницы из /bitrix/admin/
+        $toDelete = [
+            $_SERVER['DOCUMENT_ROOT'] . '/bitrix/admin/ticket_manager_list.php',
+            $_SERVER['DOCUMENT_ROOT'] . '/bitrix/admin/ticket_manager_settings.php',
+            $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/admin_menu/bitrix.ticketmanager.php',
+        ];
+        foreach ($toDelete as $f) {
+            if (file_exists($f)) unlink($f);
         }
+
+        // Удаляем настройки модуля
+        COption::RemoveModuleOptions($this->MODULE_ID);
 
         UnRegisterModule($this->MODULE_ID);
         $APPLICATION->IncludeAdminFile(

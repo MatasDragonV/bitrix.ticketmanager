@@ -9,8 +9,10 @@ class BitrixTicketManagerActions
     private BitrixTicketManagerFilter $filter;
     private string $pageUrl;
 
-    /** Сколько записей обрабатывать за один проход при массовом удалении */
-    const CHUNK_SIZE = 100;
+    private function getChunkSize(): int
+    {
+        return max(1, COption::GetOptionInt('bitrix.ticketmanager', 'chunk_size', 100));
+    }
 
     public function __construct(BitrixTicketManagerFilter $filter, string $pageUrl)
     {
@@ -68,9 +70,10 @@ class BitrixTicketManagerActions
 
         // Удаляем порциями — после каждого удаления смещение не нужно,
         // т.к. удалённые записи выпадают из выборки сами
+        $chunkSize = $this->getChunkSize();
         while ($hasMore) {
-            $ids     = $this->fetchIds(self::CHUNK_SIZE);
-            $hasMore = count($ids) === self::CHUNK_SIZE;
+            $ids     = $this->fetchIds($chunkSize);
+            $hasMore = count($ids) === $chunkSize;
 
             if (empty($ids)) break;
 

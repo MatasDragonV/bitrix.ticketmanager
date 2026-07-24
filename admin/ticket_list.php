@@ -41,7 +41,7 @@ $actions = new BitrixTicketManagerActions($filter, $PAGE_URL);
 $actions->handle();
 
 // ------------------------------------------------------------------ Данные
-$result = $actions->fetchTickets(true, $currentPage, $perPage);
+$result = $actions->fetchForDisplay($currentPage, $perPage);
 $rows   = $result['rows'];
 $total  = $result['total'];
 $pages  = $total > 0 ? (int)ceil($total / $perPage) : 1;

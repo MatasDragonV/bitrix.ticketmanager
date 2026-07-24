@@ -3,12 +3,14 @@ if (!defined('B_PROLOG_INCLUDED') || B_PROLOG_INCLUDED !== true) die();
 
 /**
  * Обработчик действий над обращениями.
- * Вызывается до вывода страницы, выполняет POST-действия и редиректит.
  */
 class BitrixTicketManagerActions
 {
     private BitrixTicketManagerFilter $filter;
     private string $pageUrl;
+
+    /** Сколько записей обрабатывать за один проход при массовом удалении */
+    const CHUNK_SIZE = 100;
 
     public function __construct(BitrixTicketManagerFilter $filter, string $pageUrl)
     {
@@ -49,9 +51,7 @@ class BitrixTicketManagerActions
 
         $deleted = 0;
         foreach ($ids as $id) {
-            if (CTicket::Delete($id)) {
-                $deleted++;
-            }
+            if (CTicket::Delete($id)) $deleted++;
         }
 
         $this->redirect(['deleted' => $deleted]);
@@ -59,17 +59,27 @@ class BitrixTicketManagerActions
 
     private function deleteByFilter(): void
     {
-        // Требуем явного подтверждения
         if ($_POST['confirm_delete'] !== 'Y') {
             $this->redirect(['msg' => 'not_confirmed']);
         }
 
-        $tickets = $this->fetchTickets(false); // все без пагинации
         $deleted = 0;
-        foreach ($tickets as $t) {
-            if (CTicket::Delete($t['ID'])) {
-                $deleted++;
+        $hasMore = true;
+
+        // Удаляем порциями — после каждого удаления смещение не нужно,
+        // т.к. удалённые записи выпадают из выборки сами
+        while ($hasMore) {
+            $ids     = $this->fetchIds(self::CHUNK_SIZE);
+            $hasMore = count($ids) === self::CHUNK_SIZE;
+
+            if (empty($ids)) break;
+
+            foreach ($ids as $id) {
+                if (CTicket::Delete($id)) $deleted++;
             }
+
+            // Освобождаем память явно
+            unset($ids);
         }
 
         $this->redirect(['deleted' => $deleted]);
@@ -77,24 +87,35 @@ class BitrixTicketManagerActions
 
     private function exportCsv(): void
     {
-        $tickets = $this->fetchTickets(false);
-
         header('Content-Type: text/csv; charset=UTF-8');
         header('Content-Disposition: attachment; filename="tickets_' . date('Y-m-d') . '.csv"');
 
         $out = fopen('php://output', 'w');
-        // BOM для Excel
-        fwrite($out, "\xEF\xBB\xBF");
+        fwrite($out, "\xEF\xBB\xBF"); // BOM для Excel
         fputcsv($out, ['ID', 'Заголовок', 'Email', 'Дата', 'Спам'], ';');
 
-        foreach ($tickets as $t) {
-            fputcsv($out, [
-                $t['ID'],
-                $t['TITLE'],
-                $t['OWNER_SID'],
-                $t['TIMESTAMP_X'],
-                BitrixTicketManagerFilter::isSpam($t['TITLE']) ? 'Да' : 'Нет',
-            ], ';');
+        $offset = 0;
+        $limit  = 200;
+
+        while (true) {
+            $rows = $this->fetchPage($limit, $offset);
+            if (empty($rows)) break;
+
+            foreach ($rows as $t) {
+                fputcsv($out, [
+                    $t['ID'],
+                    $t['TITLE'],
+                    $t['OWNER_SID'],
+                    $t['TIMESTAMP_X'],
+                    BitrixTicketManagerFilter::isSpam($t['TITLE']) ? 'Да' : 'Нет',
+                ], ';');
+            }
+
+            $offset += $limit;
+            unset($rows);
+
+            if (ob_get_level()) ob_flush();
+            flush();
         }
 
         fclose($out);
@@ -104,57 +125,111 @@ class BitrixTicketManagerActions
     // -------------------------------------------------------------------------
 
     /**
-     * Получает обращения по текущему фильтру.
-     * @param bool $paginate Применять пагинацию (для preview) или нет (для удаления/экспорта)
+     * Возвращает одну страницу таблицы для отображения.
+     * Также считает общее количество через отдельный лёгкий запрос.
      */
-    public function fetchTickets(bool $paginate = true, int $page = 1, int $perPage = 50): array
+    public function fetchForDisplay(int $page = 1, int $perPage = 50): array
     {
-        $f      = $this->filter->getFilter();
-        $onlyNoType  = !empty($f['ONLY_NO_TYPE']);
-        $emailMask   = $f['EMAIL_MASK'] ?? '';
+        $offset = ($page - 1) * $perPage;
+        $rows   = $this->fetchPage($perPage, $offset);
+        $total  = $this->countTotal();
 
-        // Убираем наши виртуальные ключи, которые CTicket не знает
-        unset($f['ONLY_NO_TYPE'], $f['EMAIL_MASK']);
+        return ['rows' => $rows, 'total' => $total];
+    }
 
-        $tickets = [];
-        $offset  = $paginate ? ($page - 1) * $perPage : false;
-        $limit   = $paginate ? $perPage : false;
-        $count   = 0;
-        $total   = 0;
+    // -------------------------------------------------------------------------
+    // Внутренние методы выборки — никогда не тянут всё в память
+    // -------------------------------------------------------------------------
 
-        $rs = CTicket::GetList(
-            's_timestamp',
-            'desc',
-            $f,
-            $isFiltered,
-            'N', // check_rights — N, т.к. вызывает только администратор
-            'N',
-            'N',
-            false,
-            ['SELECT' => []]
-        );
+    /**
+     * Возвращает страницу записей с учётом фильтра.
+     * Постфильтрация (ONLY_NO_TYPE, EMAIL_MASK) применяется на PHP-уровне,
+     * но курсор не держится открытым — читаем ровно столько, сколько нужно.
+     */
+    private function fetchPage(int $limit, int $offset): array
+    {
+        [$dbFilter, $onlyNoType, $emailMask] = $this->prepareFilter();
+
+        $rows    = [];
+        $skipped = 0;
+        $found   = 0;
+
+        $rs = CTicket::GetList('s_timestamp', 'desc', $dbFilter, $isFiltered, 'N', 'N', 'N', false, ['SELECT' => []]);
 
         while ($row = $rs->GetNext()) {
-            // Постфильтрация
-            if ($onlyNoType && !BitrixTicketManagerFilter::isSpam($row['TITLE'])) {
-                continue;
-            }
-            if ($emailMask !== '' && !BitrixTicketManagerFilter::emailMatchesMask($row['OWNER_SID'], $emailMask)) {
-                continue;
-            }
+            if (!$this->passPostFilter($row, $onlyNoType, $emailMask)) continue;
 
-            $total++;
+            if ($skipped < $offset) { $skipped++; continue; }
+            if ($found >= $limit) break;
 
-            if ($paginate) {
-                if ($count < ($offset ?? 0)) { $count++; continue; }
-                if (count($tickets) >= $perPage) continue;
-            }
-
-            $tickets[] = $row;
-            $count++;
+            $rows[] = $row;
+            $found++;
         }
 
-        return $paginate ? ['rows' => $tickets, 'total' => $total] : $tickets;
+        return $rows;
+    }
+
+    /**
+     * Считает общее количество записей по фильтру без загрузки данных.
+     */
+    private function countTotal(): int
+    {
+        [$dbFilter, $onlyNoType, $emailMask] = $this->prepareFilter();
+
+        // Если нет постфильтрации — используем COUNT запрос
+        if (!$onlyNoType && $emailMask === '') {
+            $rs = CTicket::GetList('s_id', 'asc', $dbFilter, $isFiltered, 'N', 'N', 'N', false, ['SELECT' => ['ID']]);
+            return $rs->SelectedRowsCount();
+        }
+
+        // С постфильтрацией — придётся пройти по всем, но без загрузки полного контента
+        $count = 0;
+        $rs    = CTicket::GetList('s_id', 'asc', $dbFilter, $isFiltered, 'N', 'N', 'N', false, ['SELECT' => ['ID', 'TITLE', 'OWNER_SID']]);
+
+        while ($row = $rs->GetNext()) {
+            if ($this->passPostFilter($row, $onlyNoType, $emailMask)) $count++;
+        }
+
+        return $count;
+    }
+
+    /**
+     * Возвращает только ID записей (для удаления порциями).
+     */
+    private function fetchIds(int $limit): array
+    {
+        [$dbFilter, $onlyNoType, $emailMask] = $this->prepareFilter();
+
+        $ids   = [];
+        $rs    = CTicket::GetList('s_id', 'asc', $dbFilter, $isFiltered, 'N', 'N', 'N', false, ['SELECT' => ['ID', 'TITLE', 'OWNER_SID']]);
+
+        while ($row = $rs->GetNext()) {
+            if (!$this->passPostFilter($row, $onlyNoType, $emailMask)) continue;
+            $ids[] = intval($row['ID']);
+            if (count($ids) >= $limit) break;
+        }
+
+        return $ids;
+    }
+
+    // -------------------------------------------------------------------------
+
+    private function prepareFilter(): array
+    {
+        $f          = $this->filter->getFilter();
+        $onlyNoType = !empty($f['ONLY_NO_TYPE']);
+        $emailMask  = strval($f['EMAIL_MASK'] ?? '');
+
+        unset($f['ONLY_NO_TYPE'], $f['EMAIL_MASK']);
+
+        return [$f, $onlyNoType, $emailMask];
+    }
+
+    private function passPostFilter(array $row, bool $onlyNoType, string $emailMask): bool
+    {
+        if ($onlyNoType && !BitrixTicketManagerFilter::isSpam($row['TITLE'])) return false;
+        if ($emailMask !== '' && !BitrixTicketManagerFilter::emailMatchesMask($row['OWNER_SID'], $emailMask)) return false;
+        return true;
     }
 
     // -------------------------------------------------------------------------

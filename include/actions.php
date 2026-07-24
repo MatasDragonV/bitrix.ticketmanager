@@ -92,7 +92,7 @@ class BitrixTicketManagerActions
 
         $out = fopen('php://output', 'w');
         fwrite($out, "\xEF\xBB\xBF"); // BOM для Excel
-        fputcsv($out, ['ID', 'Заголовок', 'Email', 'Дата', 'Спам'], ';');
+        fputcsv($out, ['ID', 'Заголовок', 'Текст', 'Email', 'Дата', 'Спам'], ';');
 
         $offset = 0;
         $limit  = 200;
@@ -105,6 +105,7 @@ class BitrixTicketManagerActions
                 fputcsv($out, [
                     $t['ID'],
                     $t['TITLE'],
+                    strip_tags($t['MESSAGE']),
                     $t['OWNER_SID'],
                     $t['TIMESTAMP_X'],
                     BitrixTicketManagerFilter::isSpam($t['TITLE']) ? 'Да' : 'Нет',
@@ -154,7 +155,7 @@ class BitrixTicketManagerActions
         $skipped = 0;
         $found   = 0;
 
-        $rs = CTicket::GetList('s_timestamp', 'desc', $dbFilter, $isFiltered, 'N', 'N', 'N', false, ['SELECT' => []]);
+        $rs = CTicket::GetList('s_timestamp', 'desc', $dbFilter, $isFiltered, 'N', 'N', 'N', false, ['SELECT' => ['MESSAGE']]);
 
         while ($row = $rs->GetNext()) {
             if (!$this->passPostFilter($row, $onlyNoType, $emailMask)) continue;

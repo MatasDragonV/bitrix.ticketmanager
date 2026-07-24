@@ -113,6 +113,7 @@ require $_SERVER['DOCUMENT_ROOT'] . '/bitrix/modules/main/include/prolog_admin_a
 .tm-modal p       { margin: 0 0 18px; font-size: 13px; color: #444; }
 .tm-modal-btns    { display: flex; gap: 8px; justify-content: flex-end; }
 .tm-empty         { text-align: center; padding: 40px; color: #888; font-size: 14px; }
+.tm-message-col   { color: #555; font-size: 12px; max-width: 320px; word-break: break-word; }
 </style>
 
 <div class="tm-wrap">
@@ -234,6 +235,7 @@ if ($filter->getErrors()):?>
             </th>
             <th class="tm-id-col">ID</th>
             <th>Заголовок</th>
+            <th>Текст обращения</th>
             <th>Email автора</th>
             <th class="tm-date-col">Дата</th>
             <th style="width:60px">Спам</th>
@@ -252,6 +254,7 @@ if ($filter->getErrors()):?>
             <a href="<?= htmlspecialcharsbx($editUrl) ?>" target="_blank"><?= intval($t['ID']) ?></a>
         </td>
         <td><?= htmlspecialcharsbx($t['TITLE']) ?></td>
+        <td class="tm-message-col"><?= htmlspecialcharsbx(mb_substr(strip_tags($t['MESSAGE']), 0, 200)) ?><?= mb_strlen(strip_tags($t['MESSAGE'])) > 200 ? '…' : '' ?></td>
         <td><?= htmlspecialcharsbx($t['OWNER_SID']) ?></td>
         <td class="tm-date-col"><?= htmlspecialcharsbx($t['TIMESTAMP_X']) ?></td>
         <td <?= $isSpam ? 'class="tm-spam"' : '' ?>><?= $isSpam ? 'Да' : '' ?></td>
